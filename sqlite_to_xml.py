@@ -119,4 +119,4 @@ def generate_xml_data(input_file):
 
 # Usage - Change path here and run script afterwards
 if __name__ == "__main__":
-    generate_xml_data('path-to-your-db-file')
+    generate_xml_data('./openthesaurus_dump_250224.tar.bz2')
