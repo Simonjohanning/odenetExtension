@@ -5,80 +5,72 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-# The input file is the exported database (.db) file of the WordNet-Editor 
+import dbUtils
 
-def generate_xml_data(input_file): 
+
+# The input file is the exported database (.db) file of the WordNet-Editor
+# For serialization, all attributes need to be strings
+def generate_xml_data(connection):
     # Initialize XML content
     root = ET.Element("LexicalResource")
 
-    connection = sqlite3.connect(input_file)
-    cursor = connection.cursor()
+    words = dbUtils.extractAllWords(connection)
 
-    # Process Lexical Entries
-    cursor.execute('SELECT * FROM Lexical_Entries')
-    for row in cursor.fetchall():
+    # # Process Lexical Entries
+    for word in words:
         lexical_entry = ET.Element("LexicalEntry")
-        lexical_entry.set("id", row[0])
+        lexical_entry.set("id", str(word['id']))
         lemma = ET.SubElement(lexical_entry, "Lemma")
-        lemma.set("writtenForm", row[1])
-        lemma.set("partOfSpeech", row[2])
-        senses = eval(row[3])  
+        lemma.set("writtenForm", word['writtenForm'])
+
+        senses = dbUtils.findSynsetForWord(connection, word['writtenForm'])
         for sense in senses:
             sense_element = ET.SubElement(lexical_entry, "Sense")
-            sense_element.set("id", sense[0])
-            sense_element.set("synset", sense[1])
+            sense_element.set("id", str(word['id']) + '_' + str(sense))
+            sense_element.set("synset", 'odenet-' + str(sense))
         root.append(lexical_entry)
 
-    # Process Synsets
-    cursor.execute('SELECT * FROM Synsets')
+    # # Process Synsets
+    synsets = dbUtils.retrieveVisibleSynsets(connection)
     synset_relations = {}
-    for row in cursor.fetchall():
+    for currentSynset in synsets:
         synset = ET.Element("Synset")
-        synset.set("id", row[0])
-        synset.set("ili", row[1])
-        synset.set("partOfSpeech", row[2])
-        if row[4]:
-            synset.set("dc:subject", row[4])
-        if row[5]:
-            synset.set("dc:description", row[5])
-        if row[6]:
-            synset.set("confidenceScore", row[6])
-        if row[3]:
-            definition = ET.SubElement(synset, "Definition")
-            definition.text = row[3]
-        if row[7]:
-            example = ET.SubElement(synset, "Example")
-            example.text = row[7]
+        synset.set("id", str(currentSynset))
         root.append(synset)
-        synset_relations[row[0]] = []
-
-    # Process Synset Relations
-    cursor.execute('SELECT Synset_id, target_and_relType FROM Synset_Relation')
-    for row in cursor.fetchall():
-        synset_id, target_and_relType = row
-        target_rel_list = eval(target_and_relType)
-        for target, rel_type in target_rel_list:
-            synset_relation = ET.Element("SynsetRelation")
-            synset_relation.set("target", target)
-            synset_relation.set("relType", rel_type)
-            synset_relations[synset_id].append(synset_relation)
-
-    # Add Synset Relations to Synsets
-    for synset_id, synset_relations_list in synset_relations.items():
-        synset_element = next((elem for elem in root.iter("Synset") if elem.get("id") == synset_id), None)
-        if synset_element is not None:
-            definition_element = synset_element.find("Definition")
-            children = list(synset_element)  # Get all children elements
-            new_children = []
-
-            for child in children:
-                new_children.append(child)
-                if child == definition_element:
-                    # Insert SynsetRelations immediately after the Definition element
-                    new_children.extend(synset_relations_list)
-
-            # Replace old children with new ordered children
-            synset_element[:] = new_children
+        synset_relations = dbUtils.findAllRelations(connection, currentSynset)
+        preferredTerm = dbUtils.retrievePreferredTerm(connection, currentSynset)
+        if preferredTerm:
+            synset.set("dc:description", preferredTerm)
+        # Process Synset Relations
+        # process hypernyms
+        # TODO some entries have more than 1 element
+        if (len(synset_relations['hypernym']) < 1):
+            # TODO check when this happens
+            print('hypernym: ' + str(synset_relations['hypernym']))
+        else:
+            for synset_relation in synset_relations['hypernym'][0]:
+                synset_relation_element = ET.Element("SynsetRelation")
+                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+                synset_relation_element.set("relType", 'hypernym')
+                synset.append(synset_relation_element)
+        # process hyponyms
+        if (len(synset_relations['hyponym']) < 1):
+            print('hyponym: ' + str(synset_relations['hyponym']))
+        else:
+            for synset_relation in synset_relations['hyponym'][0]:
+                synset_relation_element = ET.Element("SynsetRelation")
+                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+                synset_relation_element.set("relType", 'hyponym')
+                synset.append(synset_relation_element)
+        # process associations
+        if (len(synset_relations['association']) < 1):
+            print('association: ' + str(synset_relations['association']))
+        else:
+            for synset_relation in synset_relations['association'][0]:
+                synset_relation_element = ET.Element("SynsetRelation")
+                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+                synset_relation_element.set("relType", 'association')
+                synset.append(synset_relation_element)
 
     # Generate XML content
     xml_content = ET.tostring(root, encoding="unicode")
@@ -90,33 +82,29 @@ def generate_xml_data(input_file):
     # Remove all XML declarations
     pretty_xml_content = re.sub(r'<\?xml.*\?>\n?', '', pretty_xml_content)
 
-    # Add Header (Assuming the header file is in the same directory)
-    header_path = "header.xml"
-    with open(header_path, 'r') as file:
-        wordnet_header = file.read()
-
-    # Perform Replacements
-    wordnet_new = pretty_xml_content.replace('<LexicalResource>', wordnet_header)
-    wordnet_new = wordnet_new.replace('</LexicalResource>', '</Lexicon>\n</LexicalResource>')
-    pattern_to_replace_source = r'\ssource'
-    replacement_string_source = ' dc:source'
-    wordnet_new = re.sub(pattern_to_replace_source, replacement_string_source, wordnet_new)
-    pattern_to_replace_subject = r'\ssubject'
-    replacement_string_subject = ' dc:subject'
-    wordnet_new = re.sub(pattern_to_replace_subject, replacement_string_subject, wordnet_new)
-    pattern_to_replace_description = r'\sdescription'
-    replacement_string_description = ' dc:description'
-    wordnet_new = re.sub(pattern_to_replace_description, replacement_string_description, wordnet_new)
+    # # Add Header (Assuming the header file is in the same directory)
+    # header_path = "header.xml"
+    # with open(header_path, 'r') as file:
+    #     wordnet_header = file.read()
+    #
+    # # Perform Replacements
+    # wordnet_new = pretty_xml_content.replace('<LexicalResource>', wordnet_header)
+    # wordnet_new = wordnet_new.replace('</LexicalResource>', '</Lexicon>\n</LexicalResource>')
+    # pattern_to_replace_source = r'\ssource'
+    # replacement_string_source = ' dc:source'
+    # wordnet_new = re.sub(pattern_to_replace_source, replacement_string_source, wordnet_new)
+    # pattern_to_replace_subject = r'\ssubject'
+    # replacement_string_subject = ' dc:subject'
+    # wordnet_new = re.sub(pattern_to_replace_subject, replacement_string_subject, wordnet_new)
+    # pattern_to_replace_description = r'\sdescription'
+    # replacement_string_description = ' dc:description'
+    # wordnet_new = re.sub(pattern_to_replace_description, replacement_string_description, wordnet_new)
 
     # Save the XML content to a file
     output_file = f"{datetime.today().strftime('%Y%m%d')}_wordnet.xml"
-    with open(output_file, 'w') as file:
-        file.write(wordnet_new)
+    with open(output_file, 'w', encoding='utf-8') as file:
+        file.write(pretty_xml_content)
 
     connection.close()
 
     print(f"XML WordNet generated and saved to {output_file}")
-
-# Usage - Change path here and run script afterwards
-if __name__ == "__main__":
-    generate_xml_data('./openthesaurus_dump_250224.tar.bz2')
