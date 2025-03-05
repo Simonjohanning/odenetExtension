@@ -38,39 +38,32 @@ def generate_xml_data(connection):
         synset.set("id", str(currentSynset))
         root.append(synset)
         synset_relations = dbUtils.findAllRelations(connection, currentSynset)
-        preferredTerm = dbUtils.retrievePreferredTerm(connection, currentSynset)
-        if preferredTerm:
-            synset.set("dc:description", preferredTerm)
+        if(currentSynset in synset_relations):
+            print("synset " + str(currentSynset) + ' is part of ' + str(currentSynset))
+        preferredTerm = dbUtils.retrievePreferredTerm(connection, currentSynset)[0]
+        if len(preferredTerm) > 0:
+            if preferredTerm[0]:
+                synset.set("dc:description", preferredTerm[0])
         # Process Synset Relations
         # process hypernyms
         # TODO some entries have more than 1 element
-        if (len(synset_relations['hypernym']) < 1):
-            # TODO check when this happens
-            print('hypernym: ' + str(synset_relations['hypernym']))
-        else:
-            for synset_relation in synset_relations['hypernym'][0]:
-                synset_relation_element = ET.Element("SynsetRelation")
-                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
-                synset_relation_element.set("relType", 'hypernym')
-                synset.append(synset_relation_element)
+        for synset_relation in synset_relations['hypernym']:
+            synset_relation_element = ET.Element("SynsetRelation")
+            synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+            synset_relation_element.set("relType", 'hypernym')
+            synset.append(synset_relation_element)
         # process hyponyms
-        if (len(synset_relations['hyponym']) < 1):
-            print('hyponym: ' + str(synset_relations['hyponym']))
-        else:
-            for synset_relation in synset_relations['hyponym'][0]:
-                synset_relation_element = ET.Element("SynsetRelation")
-                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
-                synset_relation_element.set("relType", 'hyponym')
-                synset.append(synset_relation_element)
+        for synset_relation in synset_relations['hyponym']:
+            synset_relation_element = ET.Element("SynsetRelation")
+            synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+            synset_relation_element.set("relType", 'hyponym')
+            synset.append(synset_relation_element)
         # process associations
-        if (len(synset_relations['association']) < 1):
-            print('association: ' + str(synset_relations['association']))
-        else:
-            for synset_relation in synset_relations['association'][0]:
-                synset_relation_element = ET.Element("SynsetRelation")
-                synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
-                synset_relation_element.set("relType", 'association')
-                synset.append(synset_relation_element)
+        for synset_relation in synset_relations['association']:
+            synset_relation_element = ET.Element("SynsetRelation")
+            synset_relation_element.set("targets", 'odenet-' + str(synset_relation))
+            synset_relation_element.set("relType", 'association')
+            synset.append(synset_relation_element)
 
     # Generate XML content
     xml_content = ET.tostring(root, encoding="unicode")

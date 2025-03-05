@@ -317,11 +317,23 @@ def findAllRelations(connection, synsetId):
     """
     relationDictionary = {'hypernym': [], 'hyponym': [], 'association': []}
     # retrieve hypernyms
-    relationDictionary['hypernym'] = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': True, 'findAssociations': False, 'findHyponyms': False})[0]
+    # findRelations yields two objects, with the first showing all paths. For these, the second argument is the second visited node, i.e. the target of the relation
+    # it is thus necessary to map the paths to the relation nodes
+    # TODO check why some paths have length 1 and don't filter here
+    hypernymPaths = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': True, 'findAssociations': False, 'findHyponyms': False})[0]
+    if len(hypernymPaths) > 0:
+        # Take the second element of the path, as this is the target of the relation. If it doesn't exist, filter it out
+        relationDictionary['hypernym'] = list(filter(lambda x: x is not None, map(lambda path: path[1] if len(path) > 1 and path[1] is not None else None, hypernymPaths)))
     # retrieve hyponyms
-    relationDictionary['hyponym'] = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': False, 'findAssociations': False, 'findHyponyms': True})[0]
+    hyponymPaths = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': False, 'findAssociations': False, 'findHyponyms': True})[0]
+    if len(hyponymPaths) > 0:
+        # Take the second element of the path, as this is the target of the relation. If it doesn't exist, filter it out
+        relationDictionary['hyponym'] = list(filter(lambda x: x is not None, map(lambda path: path[1] if len(path) > 1 and path[1] is not None else None, hyponymPaths)))
     # retrieve associations
-    relationDictionary['association'] = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': False, 'findAssociations': True, 'findHyponyms': False})[0]
+    associationPaths = findRelations(connection, synsetId, [], [], options={'infoFlag': False, 'debugFlag': False, 'depth': 1, 'findHypernyms': False, 'findAssociations': True, 'findHyponyms': False})[0]
+    if len(associationPaths) > 0:
+        # Take the second element of the path, as this is the target of the relation. If it doesn't exist, filter it out
+        relationDictionary['association'] = list(filter(lambda x: x is not None, map(lambda path: path[1] if len(path) > 1 and path[1] is not None else None, associationPaths)))
     return relationDictionary
 def findRelations(connection, currentSynsetId, currentPaths, currentPath=None, visitedNodes=None, options={'infoFlag': True, 'debugFlag': False, 'depth': None, 'findHypernyms': True, 'findAssociations': True, 'findHyponyms': False}):
     """
